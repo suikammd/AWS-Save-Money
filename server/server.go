@@ -27,6 +27,45 @@ func New() (l Listener){
 	return
 }
 
+func NewTeleBot() (*tgbotapi.BotAPI, error){
+	// Init Telegram Bot
+	bot, err := tgbotapi.NewBotAPI(BotToken)
+	if err != nil {
+		log.Fatal(err)
+		return &tgbotapi.BotAPI{}, err
+	}
+	bot.Debug = true
+	return bot, nil
+}
+
+func (l Listener) describeInstance(describeInput *ec2.DescribeInstancesInput, state string) (*ec2.DescribeInstancesOutput, error) {
+	lptr := (ec2.EC2)(l)
+	for {
+		fmt.Println("Enter Stop Instance Describe Output")
+		describeOutput, err := lptr.DescribeInstances(describeInput)
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				default:
+					fmt.Println(aerr.Error())
+				}
+			} else {
+				// Print the error, cast err to awserr.Error to get the Code and
+				// Message from an error.
+				fmt.Println(err.Error())
+			}
+			return &ec2.DescribeInstancesOutput{}, err
+		}
+		fmt.Println(describeOutput)
+		if *describeOutput.Reservations[0].Instances[0].State.Name == state {
+			fmt.Printf("Instance state is %s!\n", state)
+			return describeOutput, nil
+		} else {
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
 func (l Listener) stopInstance() (*ec2.StopInstancesOutput, error) {
 	fmt.Println("Enter StopInstance")
 	lptr := (ec2.EC2)(l)
@@ -69,8 +108,10 @@ func (l Listener) startInstance() error {
 		},
 	}
 
-	var result *ec2.StartInstancesOutput
-	result, err := lptr.StartInstances(input)
+	//Init TeleBot
+	bot, _ := NewTeleBot()
+
+	_, err := lptr.StartInstances(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -85,7 +126,15 @@ func (l Listener) startInstance() error {
 		return err
 	}
 
-	fmt.Println(result)
+	// Make a Describe Request to Get Result
+	describeInput := &ec2.DescribeInstancesInput{
+		InstanceIds: []*string{
+			InstanceID,
+		},
+	}
+	result, err := l.describeInstance(describeInput, "running")
+	msg := tgbotapi.NewMessage(int64(ChatID), "Current Instance Type is " + *result.Reservations[0].Instances[0].InstanceType)
+	bot.Send(msg)
 	return nil
 }
 
@@ -117,36 +166,10 @@ func (l Listener) StartInstance(line []byte, ack *bool) error {
 	return nil
 }
 
-func (l Listener) describeInstance(describeInput *ec2.DescribeInstancesInput, state string) (*ec2.DescribeInstancesOutput, error) {
-	lptr := (ec2.EC2)(l)
-	for {
-		fmt.Println("Enter Stop Instance Describe Output")
-		describeOutput, err := lptr.DescribeInstances(describeInput)
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				default:
-					fmt.Println(aerr.Error())
-				}
-			} else {
-				// Print the error, cast err to awserr.Error to get the Code and
-				// Message from an error.
-				fmt.Println(err.Error())
-			}
-			return &ec2.DescribeInstancesOutput{}, err
-		}
-		fmt.Println(describeOutput)
-		if *describeOutput.Reservations[0].Instances[0].State.Name == state {
-			fmt.Printf("Instance state is %s!\n", state)
-			return describeOutput, nil
-		} else {
-			time.Sleep(2 * time.Second)
-		}
-	}
-}
-
 func (l Listener) DescribeInstance(line []byte, ack *bool) error {
+	var instancePublicIP *string
 	lptr := (ec2.EC2)(l)
+	bot, _ := NewTeleBot()
 	describeInput := &ec2.DescribeInstancesInput{
 		InstanceIds: []*string{
 			InstanceID,
@@ -167,6 +190,10 @@ func (l Listener) DescribeInstance(line []byte, ack *bool) error {
 		return err
 	}
 	fmt.Println(describeOutput)
+	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
+	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
+	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + " " + *instancePublicIP)
+	bot.Send(msg)
 	return nil
 }
 
@@ -205,15 +232,10 @@ func (l Listener) ModifyUpInstance(line []byte, ack *bool) error {
 	var instancePublicIP *string
 
 	// Init Telegram Bot
-	bot, err := tgbotapi.NewBotAPI(BotToken)
-	if err != nil {
-		log.Fatal(err)
-	}
-	bot.Debug = true
-	log.Printf("Authorized on account %s", bot.Self.UserName)
+	bot, _ := NewTeleBot()
 
 	// To stop instance
-	_, err = l.stopInstance()
+	_, err := l.stopInstance()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -246,8 +268,9 @@ func (l Listener) ModifyUpInstance(line []byte, ack *bool) error {
 		fmt.Println(err)
 	}
 	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
+	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
 	fmt.Printf("IP is %s\n", *instancePublicIP)
-	msg := tgbotapi.NewMessage(int64(ChatID), *instancePublicIP)
+	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + *instancePublicIP)
 	bot.Send(msg)
 	return nil
 }
@@ -256,15 +279,10 @@ func (l Listener) ModifyDownInstance(line []byte, ack *bool) error {
 	var instancePublicIP *string
 
 	// Init Telegram Bot
-	bot, err := tgbotapi.NewBotAPI(BotToken)
-	if err != nil {
-		log.Fatal(err)
-	}
-	bot.Debug = true
-	log.Printf("Authorized on account %s", bot.Self.UserName)
+	bot, _ := NewTeleBot()
 
 	// To stop instance
-	_, err = l.stopInstance()
+	_, err := l.stopInstance()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -297,11 +315,11 @@ func (l Listener) ModifyDownInstance(line []byte, ack *bool) error {
 		fmt.Println(err)
 	}
 	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
+	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
 	fmt.Printf("IP is %s\n", *instancePublicIP)
-	msg := tgbotapi.NewMessage(int64(ChatID), *instancePublicIP)
+	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + *instancePublicIP)
 	bot.Send(msg)
 	return nil
-	
 }
 
 func main() {
