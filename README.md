@@ -1,10 +1,12 @@
 ---
 
-# 目的
+# Purpose
 
-在编译Petalinux的时候，需要至少4核CPU。GCE的虚拟机用完了，AWS计算资源又非常贵，不过还好有免费的100$可以用。因此我决定采取非常丑的办法（还不是因为菜），在准备编译时关闭AWS Instance，从t2.micro（AWS免费）升级到t2.xlarge，然后启动机器将Public IP发送到Telegram Bot；在编译完成时关闭并降级最后再重新启动Instance。
+I found at least 4 core CPUs are required when compiling petalinux. The trail of GCE is over but fortunately AWS free $100 is available while its computing resources are extremely expensive. So I used a very ugly method to solve this problem:). When I need to complie petalinux, I stop the instance, upgrade the instance type up to t2.xlarge, restart the instance and then the public ip is automatically sent to Telegram Bot. When I finish compiling, I stop the instance, downgrade the instance type to t2.micro(free to use) and restart the instance.
 
-# 环境
+
+
+# Prerequsites
 
 AWS Instance 1 (Server t2.micro)
 
@@ -12,24 +14,26 @@ AWS Instance 2 (Client  t2.xlarge / t2.micro)
 
 Telegram Bot
 
-# 通信
 
-一开始没有考虑ssh连接到实例需要公网IP的问题，在实例升级完成重启之后就结束了。考虑了IP的问题之后，决定将IP发送到Telegram Bot上。最后才去的做法是，通过RPC在服务端注册对象，通过对象的类型名暴露这个服务，客户端通过远程调用使用这些方法。公网IP在完成升级重启后发送到Telegram Bot。当然可以不用RPC，把所有请求都丢给Telegram Bot，好看一些。
+
+# Communication
+
+Register object in server through RPC and expose the corresponding service. Client uses these methods through remote calls. Public IP will be sent to Telegram Bot after upgrading. 
 
 1. RPC
 
-   使用Go的`net/rpc`库
+   User `net/rpc `package
 
 2. Telegram Bot
 
-   参考[Telegram Bot使用](<https://github.com/go-telegram-bot-api/telegram-bot-api/blob/master/README.md>)
+   Reference to [The usage of Telegram Bot](<https://github.com/go-telegram-bot-api/telegram-bot-api/blob/master/README.md>)
 
-   - 向Telegram BotFather发送`/newbot`
-   - 输入以`bot`结尾的Bot名字
-   - 获得BotFather返回的Bot Token
+   - Send `/newbot` to Telegram BotFather
+   - Send bot name ends with `bot`to Telegram BotFather 
+   - Get Bot token returned ty BotFather
 
-# Server / Client 代码实现
-在使用该代码前请手动定义这些参数
+# Implementation of Server / Client 
+Define Params
 
 ```go
 import "github.com/aws/aws-sdk-go/aws"
@@ -48,9 +52,9 @@ var (
 ```
 - Server
 
-  1. 设置服务端监听端口
+  1. Set listening port
 
-  2. 在服务端注册一个`Listener对象，`type Listener ec2.EC2`, 创建这个对象之后注册其对应的服务，这些服务必须是可以暴露的
+  2. Register a `Listener` object, `type Listener ec2.EC2`, register exposed services after creating this object.
 
      ```go
      type Listener ec2.EC2
@@ -77,13 +81,11 @@ var (
      rpc.Register(listener)
      ```
 
-  3. 实现需要的功能
-
-     根据需求实现需要暴露的功能
+  3. Implement the required functionality
 
 - Client
 
-  需要的功能有启动、关闭、升级和降级实例，用`switch`语句选择即可
+  Needing functions: start instance, stop instance, upgrade and downgrade instance.
 
   ```go
   package main
