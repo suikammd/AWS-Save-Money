@@ -7,8 +7,10 @@ import (
 	"fmt"
 )
 
+var InstanceIP = ""
+
 func main() {
-	client, err := rpc.Dial("tcp", "3.112.232.91:42586")
+	client, err := rpc.Dial("tcp", InstanceIP + ":42586")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,11 +55,11 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-	//case "bill":
-	//	err = client.Call("Listener.GetBilling", line, &reply)
-	//	if err != nil {
-	//		log.Fatal(err)
-	//	}
+		//case "bill":
+		//	err = client.Call("Listener.GetBilling", line, &reply)
+		//	if err != nil {
+		//		log.Fatal(err)
+		//	}
 	default:
 		log.Fatal("No Such Method!!!")
 	}

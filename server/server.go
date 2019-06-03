@@ -14,16 +14,16 @@ import (
 	"time"
 )
 
-type Listener ec2.EC2
+type Service ec2.EC2
 
-func New() (l Listener){
+func NewEC2Sess() (l Service){
 	// create EC2 service client
 	sess, _ := session.NewSession(&aws.Config{
 		Region:      Region,
 		Credentials: credentials.NewStaticCredentials(AWSID, AWSSecret, ""),
 	})
 
-	l = (Listener)(*ec2.New(sess))
+	l = (Service)(*ec2.New(sess))
 	return
 }
 
@@ -38,7 +38,7 @@ func NewTeleBot() (*tgbotapi.BotAPI, error){
 	return bot, nil
 }
 
-func (l Listener) describeInstance(describeInput *ec2.DescribeInstancesInput, state string) (*ec2.DescribeInstancesOutput, error) {
+func (l Service) describeInstance(describeInput *ec2.DescribeInstancesInput, state string) (*ec2.DescribeInstancesOutput, error) {
 	lptr := (ec2.EC2)(l)
 	for {
 		fmt.Println("Enter Stop Instance Describe Output")
@@ -66,7 +66,7 @@ func (l Listener) describeInstance(describeInput *ec2.DescribeInstancesInput, st
 	}
 }
 
-func (l Listener) stopInstance() (*ec2.StopInstancesOutput, error) {
+func (l Service) stopInstance() (*ec2.StopInstancesOutput, error) {
 	fmt.Println("Enter StopInstance")
 	lptr := (ec2.EC2)(l)
 	input := &ec2.StopInstancesInput{
@@ -91,7 +91,7 @@ func (l Listener) stopInstance() (*ec2.StopInstancesOutput, error) {
 	return result, nil
 }
 
-func (l Listener) StopInstance(line []byte, ack *bool) error {
+func (l Service) StopInstance(line []byte, ack *bool) error {
 	_, err := l.stopInstance()
 	if (err != nil) {
 		fmt.Println(err)
@@ -100,7 +100,7 @@ func (l Listener) StopInstance(line []byte, ack *bool) error {
 	return nil
 }
 
-func (l Listener) startInstance() error {
+func (l Service) startInstance() error {
 	lptr := (ec2.EC2)(l)
 	input := &ec2.StartInstancesInput{
 		InstanceIds: []*string{
@@ -138,7 +138,7 @@ func (l Listener) startInstance() error {
 	return nil
 }
 
-func (l Listener) StartInstance(line []byte, ack *bool) error {
+func (l Service) StartInstance(line []byte, ack *bool) error {
 	var instancePublicIP *string
 	// Init Telegram Bot
 	bot, err := tgbotapi.NewBotAPI(BotToken)
@@ -166,7 +166,7 @@ func (l Listener) StartInstance(line []byte, ack *bool) error {
 	return nil
 }
 
-func (l Listener) DescribeInstance(line []byte, ack *bool) error {
+func (l Service) DescribeInstance(line []byte, ack *bool) error {
 	var instancePublicIP *string
 	lptr := (ec2.EC2)(l)
 	bot, _ := NewTeleBot()
@@ -197,7 +197,7 @@ func (l Listener) DescribeInstance(line []byte, ack *bool) error {
 	return nil
 }
 
-func (l Listener) modifyInstance(instanceAttribute string) error {
+func (l Service) modifyInstance(instanceAttribute string) error {
 	lptr := (ec2.EC2)(l)
 	// Modify Instance Type
 	modifyInput := &ec2.ModifyInstanceAttributeInput{
@@ -227,7 +227,7 @@ func (l Listener) modifyInstance(instanceAttribute string) error {
 
 // ModifyUpInstance event: StopInstance ==> Change Instance Attribute to "t2.xlarge"
 // ==> Start Instance ==> Send Instance Public IP to Telegram Bot
-func (l Listener) ModifyUpInstance(line []byte, ack *bool) error {
+func (l Service) ModifyUpInstance(line []byte, ack *bool) error {
 	//lptr := (ec2.EC2)(l)
 	var instancePublicIP *string
 
@@ -275,7 +275,7 @@ func (l Listener) ModifyUpInstance(line []byte, ack *bool) error {
 	return nil
 }
 
-func (l Listener) ModifyDownInstance(line []byte, ack *bool) error {
+func (l Service) ModifyDownInstance(line []byte, ack *bool) error {
 	var instancePublicIP *string
 
 	// Init Telegram Bot
@@ -323,19 +323,19 @@ func (l Listener) ModifyDownInstance(line []byte, ack *bool) error {
 }
 
 func main() {
-	// listen on port 42586
-	addy, err := net.ResolveTCPAddr("tcp", "0.0.0.0:42586")
+	// Rester Service
+	rpc.RegisterName("Service", NewEC2Sess())
+
+	// listen on port 1234
+	listener, err := net.Listen("tcp", ":1234")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Listen TCP error: ", err)
 	}
 
-	inbound, err := net.ListenTCP("tcp", addy)
+	conn, err := listener.Accept()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Accept error")
 	}
 
-	var listener Listener
-	listener = New()
-	rpc.Register(listener)
-	rpc.Accept(inbound)
+	rpc.ServeConn(conn)
 }
