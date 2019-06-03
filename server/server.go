@@ -324,7 +324,7 @@ func (l Service) ModifyDownInstance(line []byte, ack *bool) error {
 
 func main() {
 	// Rester Service
-	rpc.RegisterName("Service", NewEC2Sess())
+	RegisterService(NewEC2Sess())
 
 	// listen on port 1234
 	listener, err := net.Listen("tcp", ":1234")
