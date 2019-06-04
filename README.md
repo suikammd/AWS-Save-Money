@@ -1,5 +1,3 @@
----
-
 # Purpose
 
 I found at least 4 core CPUs are required when compiling petalinux. The trail of GCE is over but fortunately AWS free $100 is available while its computing resources are extremely expensive. So I used a very ugly method to solve this problem:). When I need to complie petalinux, I stop the instance, upgrade the instance type up to t2.xlarge, restart the instance and then the public ip is automatically sent to Telegram Bot. When I finish compiling, I stop the instance, downgrade the instance type to t2.micro(free to use) and restart the instance.
@@ -57,28 +55,29 @@ var (
   2. Register a `Listener` object, `type Listener ec2.EC2`, register exposed services after creating this object.
 
      ```go
-     type Listener ec2.EC2
+     type Service EC2.ec2
      
-     // 初始化Listener对象
-     func New() (l Listener){
-     	// create EC2 service client
-     	sess, _ := session.NewSession(&aws.Config{
-     		Region:      Region,
-     		Credentials: credentials.NewStaticCredentials(AWSID, AWSSecret, ""),
-     	})
+     func main() {
+     	// listen on port 1234
+     	listener, err := net.Listen("tcp", ":1234")
+     	if err != nil {
+     		log.Fatal("Listen TCP error: ", err)
+     	}
      
-     	l = (Listener)(*ec2.New(sess))
-     	return
+     	// init server
+     	c, err := cre.NewServerTLSFromFile("../conf/server.pem", "../conf/server.key")
+     	if err != nil {
+     		log.Fatalf("GRPC credentials.NewServerTLSFromFile err : %v", err)
+     	}
+     
+     	server := grpc.NewServer(grpc.Creds(c))
+     	pb.RegisterServerClientServer(server, NewEC2Sess())
+     	reflection.Register(server)
+     
+     	if err := server.Serve(listener); err != nil {
+     		log.Fatalf("Failed to Serve %v", err)
+     	}
      }
-     
-     // 对外暴露的服务等
-     func (l Listener) StartInstance(line []byte, ack *bool) error {}
-     
-     ...
-     
-     listener = New()
-     // 注册服务
-     rpc.Register(listener)
      ```
 
   3. Implement the required functionality
@@ -88,53 +87,56 @@ var (
   Needing functions: start instance, stop instance, upgrade and downgrade instance.
 
   ```go
-  package main
-  
-  import (
-  	"bufio"
-  	"os"
-  	"github.com/prometheus/common/log"
-  	"net/rpc"
-  )
-  
   func main() {
-  	client, err := rpc.Dial("tcp", "3.112.232.91:42586")
+  	c, err := credentials.NewClientTLSFromFile("../conf/server.pem", "Suika")
   	if err != nil {
-  		log.Fatal(err)
+  		log.Fatalf("credentials.NewClientTLSFromFile err: err")
   	}
   
-  	in := bufio.NewReader(os.Stdin)
-  	line, _, err := in.ReadLine()
+  	conn, err := grpc.Dial(InstanceIP + ":1234", grpc.WithTransportCredentials(c))
   	if err != nil {
-  		log.Fatal(err)
+  		log.Fatalf("grpc.Dail error %v", err)
   	}
+  	defer conn.Close()
   
+  	client := pb.NewServerClientClient(conn)
+  	// flags
+  	var in string
+  	flag.StringVar(&in, "s", in, "name")
+  	flag.Parse()
+  	var line []byte = []byte(in)
   	method := string(line)
+  	fmt.Printf("Current Method is %s\n", method)
   	var reply bool
   
   	switch method {
   	case "b":
-  		err = client.Call("Listener.ModifyUpInstance", line, &reply)
+  		fmt.Println("Restart and Modify to Build")
+  		_, err = client.ModifyUpInstance(context.Background(), &pb.Request{Line:line, Ack:reply})
   		if err != nil {
   			log.Fatal(err)
   		}
   	case "f":
-  		err = client.Call("Listener.ModifyDownInstance", line, &reply)
+  		fmt.Println("Finish Building")
+  		_, err = client.ModifyDownInstance(context.Background(), &pb.Request{Line:line, Ack:reply})
   		if err != nil {
   			log.Fatal(err)
   		}
   	case "start":
-  		err = client.Call("Listener.StartInstance", line, &reply)
+  		fmt.Println("Start Instance")
+  		_, err = client.StartInstance(context.Background(), &pb.Request{Line:line, Ack:reply})
   		if err != nil {
   			log.Fatal(err)
   		}
   	case "stop":
-  		err = client.Call("Listener.StopInstance", line, &reply)
+  		fmt.Println("Stop Instace")
+  		_, err = client.StopInstance(context.Background(), &pb.Request{Line:line, Ack:reply})
   		if err != nil {
   			log.Fatal(err)
   		}
   	case "des":
-  		err = client.Call("Listener.DescribeInstance", line, &reply)
+  		fmt.Println("Describe Instace")
+  		_, err = client.DescribeInstance(context.Background(), &pb.Request{Line:line, Ack:reply})
   		if err != nil {
   			log.Fatal(err)
   		}
