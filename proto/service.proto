@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package proto;
+
+service ServerClient {
+    rpc StartInstance(Request) returns (Response) {}
+    rpc DescribeInstance(Request) returns (Response) {}
+    rpc StopInstance(Request) returns (Response) {}
+    rpc ModifyUpInstance(Request) returns (Response) {}
+    rpc ModifyDownInstance(Request) returns (Response) {}
+}
+
+message Request {
+    bytes line = 1;
+    bool ack = 2;
+}
+
+message Response {
+}

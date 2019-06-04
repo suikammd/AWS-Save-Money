@@ -4,14 +4,18 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/rpc"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"time"
+	"context"
+	"google.golang.org/grpc"
+	cre "google.golang.org/grpc/credentials"
+	pb "../proto"
+	"google.golang.org/grpc/reflection"
 )
 
 type Service ec2.EC2
@@ -91,13 +95,13 @@ func (l Service) stopInstance() (*ec2.StopInstancesOutput, error) {
 	return result, nil
 }
 
-func (l Service) StopInstance(line []byte, ack *bool) error {
+func (l Service) StopInstance(ctx context.Context, request *pb.Request) (*pb.Response, error){
 	_, err := l.stopInstance()
 	if (err != nil) {
 		fmt.Println(err)
 	}
 	fmt.Println("Successfully Stop Instance")
-	return nil
+	return &pb.Response{}, nil
 }
 
 func (l Service) startInstance() error {
@@ -138,7 +142,7 @@ func (l Service) startInstance() error {
 	return nil
 }
 
-func (l Service) StartInstance(line []byte, ack *bool) error {
+func (l Service) StartInstance(ctx context.Context, request *pb.Request) (*pb.Response, error) {
 	var instancePublicIP *string
 	// Init Telegram Bot
 	bot, err := tgbotapi.NewBotAPI(BotToken)
@@ -163,10 +167,10 @@ func (l Service) StartInstance(line []byte, ack *bool) error {
 	instancePublicIP = result.Reservations[0].Instances[0].PublicIpAddress
 	msg := tgbotapi.NewMessage(int64(ChatID), *instancePublicIP)
 	bot.Send(msg)
-	return nil
+	return &pb.Response{}, nil
 }
 
-func (l Service) DescribeInstance(line []byte, ack *bool) error {
+func (l Service) DescribeInstance(ctx context.Context, request *pb.Request) (*pb.Response, error) {
 	var instancePublicIP *string
 	lptr := (ec2.EC2)(l)
 	bot, _ := NewTeleBot()
@@ -187,14 +191,14 @@ func (l Service) DescribeInstance(line []byte, ack *bool) error {
 			// Message from an error.
 			fmt.Println(err)
 		}
-		return err
+		return &pb.Response{}, err
 	}
 	fmt.Println(describeOutput)
 	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
 	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
 	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + " " + *instancePublicIP)
 	bot.Send(msg)
-	return nil
+	return &pb.Response{}, nil
 }
 
 func (l Service) modifyInstance(instanceAttribute string) error {
@@ -227,7 +231,7 @@ func (l Service) modifyInstance(instanceAttribute string) error {
 
 // ModifyUpInstance event: StopInstance ==> Change Instance Attribute to "t2.xlarge"
 // ==> Start Instance ==> Send Instance Public IP to Telegram Bot
-func (l Service) ModifyUpInstance(line []byte, ack *bool) error {
+func (l Service) ModifyUpInstance(ctx context.Context, request *pb.Request) (*pb.Response, error) {
 	//lptr := (ec2.EC2)(l)
 	var instancePublicIP *string
 
@@ -272,10 +276,10 @@ func (l Service) ModifyUpInstance(line []byte, ack *bool) error {
 	fmt.Printf("IP is %s\n", *instancePublicIP)
 	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + *instancePublicIP)
 	bot.Send(msg)
-	return nil
+	return &pb.Response{}, nil
 }
 
-func (l Service) ModifyDownInstance(line []byte, ack *bool) error {
+func (l Service) ModifyDownInstance(ctx context.Context, request *pb.Request) (*pb.Response, error) {
 	var instancePublicIP *string
 
 	// Init Telegram Bot
@@ -319,23 +323,27 @@ func (l Service) ModifyDownInstance(line []byte, ack *bool) error {
 	fmt.Printf("IP is %s\n", *instancePublicIP)
 	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + *instancePublicIP)
 	bot.Send(msg)
-	return nil
+	return &pb.Response{}, nil
 }
 
 func main() {
-	// Rester Service
-	RegisterService(NewEC2Sess())
-
 	// listen on port 1234
 	listener, err := net.Listen("tcp", ":1234")
 	if err != nil {
 		log.Fatal("Listen TCP error: ", err)
 	}
 
-	conn, err := listener.Accept()
+	// init server
+	c, err := cre.NewServerTLSFromFile("../conf/server.pem", "../conf/server.key")
 	if err != nil {
-		log.Fatal("Accept error")
+		log.Fatalf("GRPC credentials.NewServerTLSFromFile err : %v", err)
 	}
 
-	rpc.ServeConn(conn)
+	server := grpc.NewServer(grpc.Creds(c))
+	pb.RegisterServerClientServer(server, NewEC2Sess())
+	reflection.Register(server)
+
+	if err := server.Serve(listener); err != nil {
+		log.Fatalf("Failed to Serve %v", err)
+	}
 }

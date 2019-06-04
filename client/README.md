@@ -1,0 +1,1 @@
+Set `InstanceIP` to your server ip in `client.go`
