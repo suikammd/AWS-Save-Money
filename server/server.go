@@ -20,17 +20,6 @@ import (
 
 type Service ec2.EC2
 
-func NewEC2Sess() (l Service){
-	// create EC2 service client
-	sess, _ := session.NewSession(&aws.Config{
-		Region:      Region,
-		Credentials: credentials.NewStaticCredentials(AWSID, AWSSecret, ""),
-	})
-
-	l = (Service)(*ec2.New(sess))
-	return
-}
-
 func NewTeleBot() (*tgbotapi.BotAPI, error){
 	// Init Telegram Bot
 	bot, err := tgbotapi.NewBotAPI(BotToken)
@@ -40,6 +29,17 @@ func NewTeleBot() (*tgbotapi.BotAPI, error){
 	}
 	bot.Debug = true
 	return bot, nil
+}
+
+func NewEC2Sess() (l Service){
+	// create EC2 service client
+	sess, _ := session.NewSession(&aws.Config{
+		Region:      Region,
+		Credentials: credentials.NewStaticCredentials(AWSID, AWSSecret, ""),
+	})
+
+	l = (Service)(*ec2.New(sess))
+	return
 }
 
 func (l Service) describeInstance(describeInput *ec2.DescribeInstancesInput, state string) (*ec2.DescribeInstancesOutput, error) {
@@ -104,7 +104,7 @@ func (l Service) StopInstance(ctx context.Context, request *pb.Request) (*pb.Res
 	return &pb.Response{}, nil
 }
 
-func (l Service) startInstance() error {
+func (l Service) startInstance() (string, error) {
 	lptr := (ec2.EC2)(l)
 	input := &ec2.StartInstancesInput{
 		InstanceIds: []*string{
@@ -113,7 +113,7 @@ func (l Service) startInstance() error {
 	}
 
 	//Init TeleBot
-	bot, _ := NewTeleBot()
+	//bot, _ := NewTeleBot()
 
 	_, err := lptr.StartInstances(input)
 	if err != nil {
@@ -127,7 +127,7 @@ func (l Service) startInstance() error {
 			// Message from an error.
 			log.Fatal(err)
 		}
-		return err
+		return "", err
 	}
 
 	// Make a Describe Request to Get Result
@@ -137,13 +137,14 @@ func (l Service) startInstance() error {
 		},
 	}
 	result, err := l.describeInstance(describeInput, "running")
-	msg := tgbotapi.NewMessage(int64(ChatID), "Current Instance Type is " + *result.Reservations[0].Instances[0].InstanceType)
-	bot.Send(msg)
-	return nil
+	instancePublicIP := result.Reservations[0].Instances[0].PublicIpAddress
+	msg := "Current Instance Type is " + *result.Reservations[0].Instances[0].InstanceType + "\n" + *instancePublicIP
+
+	//bot.Send(msg)
+	return msg, nil
 }
 
 func (l Service) StartInstance(ctx context.Context, request *pb.Request) (*pb.Response, error) {
-	var instancePublicIP *string
 	// Init Telegram Bot
 	bot, err := tgbotapi.NewBotAPI(BotToken)
 	if err != nil {
@@ -152,21 +153,13 @@ func (l Service) StartInstance(ctx context.Context, request *pb.Request) (*pb.Re
 	bot.Debug = true
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	err = l.startInstance()
+	msg, err := l.startInstance()
 	if (err != nil) {
 		fmt.Println(err)
 	}
 	fmt.Println("Successfully Start Instance")
 
-	describeInput := &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{
-			InstanceID,
-		},
-	}
-	result, err := l.describeInstance(describeInput, "running")
-	instancePublicIP = result.Reservations[0].Instances[0].PublicIpAddress
-	msg := tgbotapi.NewMessage(int64(ChatID), *instancePublicIP)
-	bot.Send(msg)
+	bot.Send(tgbotapi.NewMessage(int64(ChatID), msg))
 	return &pb.Response{}, nil
 }
 
@@ -194,6 +187,11 @@ func (l Service) DescribeInstance(ctx context.Context, request *pb.Request) (*pb
 		return &pb.Response{}, err
 	}
 	fmt.Println(describeOutput)
+	if *describeOutput.Reservations[0].Instances[0].State.Name == "stopped" {
+		msg := "Instance Stopped!"
+		bot.Send(tgbotapi.NewMessage(int64(ChatID), msg))
+		return &pb.Response{}, nil
+	}
 	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
 	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
 	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + " " + *instancePublicIP)
@@ -261,10 +259,11 @@ func (l Service) ModifyUpInstance(ctx context.Context, request *pb.Request) (*pb
 		fmt.Println(err)
 	}
 
-	err = l.startInstance()
+	msg, err := l.startInstance()
 	if err != nil {
 		log.Fatal(err)
 	}
+	bot.Send(tgbotapi.NewMessage(int64(ChatID), msg))
 
 	// Check Start Instance State
 	describeOutput, err := l.describeInstance(describeInput, "running")
@@ -272,10 +271,7 @@ func (l Service) ModifyUpInstance(ctx context.Context, request *pb.Request) (*pb
 		fmt.Println(err)
 	}
 	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
-	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
-	fmt.Printf("IP is %s\n", *instancePublicIP)
-	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + *instancePublicIP)
-	bot.Send(msg)
+	bot.Send(tgbotapi.NewMessage(int64(ChatID), *instancePublicIP))
 	return &pb.Response{}, nil
 }
 
@@ -308,10 +304,11 @@ func (l Service) ModifyDownInstance(ctx context.Context, request *pb.Request) (*
 		fmt.Println(err)
 	}
 
-	err = l.startInstance()
+	msg, err := l.startInstance()
 	if err != nil {
 		log.Fatal(err)
 	}
+	bot.Send(tgbotapi.NewMessage(int64(ChatID), msg))
 
 	// Check Start Instance State
 	describeOutput, err := l.describeInstance(describeInput, "running")
@@ -321,17 +318,54 @@ func (l Service) ModifyDownInstance(ctx context.Context, request *pb.Request) (*
 	instancePublicIP = describeOutput.Reservations[0].Instances[0].PublicIpAddress
 	instanceType := describeOutput.Reservations[0].Instances[0].InstanceType
 	fmt.Printf("IP is %s\n", *instancePublicIP)
-	msg := tgbotapi.NewMessage(int64(ChatID), *instanceType + *instancePublicIP)
-	bot.Send(msg)
+	bot.Send(tgbotapi.NewMessage(int64(ChatID), *instancePublicIP + *instanceType))
 	return &pb.Response{}, nil
 }
 
+func (l Service) TGStartInstance(text string) (message string) {
+	fmt.Println("Enter TGStartInstance")
+	if text == "start" {
+		fmt.Println("start instance")
+		msg, err := l.startInstance()
+		if err != nil {
+			log.Fatalf("TGStartInstance error %v", err)
+		}
+		return msg
+	}
+	return "No such Method"
+}
+
+func initBot() (*tb.Bot){
+	l := NewEC2Sess()
+	fmt.Println("start init telegram bot")
+	bot, err := tb.NewBot(tb.Settings{
+		Token:  BotToken,
+		Poller: &tb.LongPoller{Timeout: 1 * time.Second},
+	})
+
+	if err != nil {
+		fmt.Printf("NewBot err %v\n", err)
+	}
+
+	bot.Handle(tb.OnText, func(m *tb.Message) {
+		bot.Send(m.Sender, l.TGStartInstance(m.Text))
+	})
+	return bot
+}
+
 func main() {
-	// listen on port 1234
-	listener, err := net.Listen("tcp", ":1234")
+	// listen on port 12345
+	listener, err := net.Listen("tcp", ":12345")
 	if err != nil {
 		log.Fatal("Listen TCP error: ", err)
 	}
+
+	// start TGBot
+	go func() {
+		//defer wg.Done()
+		Bot = initBot()
+		Bot.Start()
+	}()
 
 	// init server
 	c, err := cre.NewServerTLSFromFile("../conf/server.pem", "../conf/server.key")
