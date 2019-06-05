@@ -1,6 +1,6 @@
 # Purpose
 
-I found at least 4 core CPUs are required when compiling petalinux. The trail of GCE is over but fortunately AWS free $100 is available while its computing resources are extremely expensive. So I used a very ugly method to solve this problem:). When I need to complie petalinux, I stop the instance, upgrade the instance type up to t2.xlarge, restart the instance and then the public ip is automatically sent to Telegram Bot. When I finish compiling, I stop the instance, downgrade the instance type to t2.micro(free to use) and restart the instance.
+I found at least 4 core CPUs are required when compiling petalinux (The more the cores, the faster the compiling speed). The trail of GCE is over but fortunately AWS free $100 is available while its computing resources are extremely expensive. So I used a very ugly method to solve this problem:). When I need to complie petalinux, I stop the instance, upgrade the instance type up to t2.xlarge, restart the instance and then the public ip is automatically sent to Telegram Bot. When I finish compiling, I stop the instance, downgrade the instance type to t2.micro(free to use) and restart the instance.
 
 
 
